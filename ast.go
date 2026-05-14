@@ -13,6 +13,10 @@ type BinOp struct {
 	Op   TokenType
 	L, R Expr
 }
+type UnaryOp struct {
+	Op TokenType
+	X  Expr
+}
 type CallExpr struct {
 	Name string
 	Args []Expr
@@ -25,6 +29,7 @@ func (*ArgRef) exprNode()   {}
 func (*NargExpr) exprNode() {}
 func (*VarRef) exprNode()   {}
 func (*BinOp) exprNode()    {}
+func (*UnaryOp) exprNode()  {}
 func (*CallExpr) exprNode() {}
 
 type AssignStmt struct {
@@ -162,13 +167,32 @@ func (c *Compiler) parseSum() Expr {
 }
 
 func (c *Compiler) parseTerm() Expr {
-	left := c.parseFactor()
+	left := c.parseUnary()
 	for c.peek().Type == TOK_MUL || c.peek().Type == TOK_DIV || c.peek().Type == TOK_MOD {
 		op := c.consume(c.peek().Type).Type
-		right := c.parseFactor()
+		right := c.parseUnary()
 		left = &BinOp{Op: op, L: left, R: right}
 	}
 	return left
+}
+
+func (c *Compiler) parseUnary() Expr {
+	if c.peek().Type == TOK_PLUS {
+		c.consume(TOK_PLUS)
+		return c.parseUnary()
+	}
+	if c.peek().Type == TOK_MINUS {
+		c.consume(TOK_MINUS)
+		x := c.parseUnary()
+		switch v := x.(type) {
+		case *NumLit:
+			return &NumLit{Value: -v.Value}
+		case *FloatLit:
+			return &FloatLit{Value: -v.Value}
+		}
+		return &UnaryOp{Op: TOK_MINUS, X: x}
+	}
+	return c.parseFactor()
 }
 
 func (c *Compiler) parseFactor() Expr {
