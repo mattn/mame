@@ -182,9 +182,41 @@ func (c *Compiler) emitExpr(w io.Writer, e Expr) {
 		write(w, "  pushq %rax", "Push payload")
 	case *BinOp:
 		c.emitBinOp(w, e)
+	case *UnaryOp:
+		c.emitUnaryOp(w, e)
 	default:
 		panic("unknown expr")
 	}
+}
+
+// emitUnaryOp evaluates X, then dispatches at runtime: INT -> negq;
+// FLOAT -> toggle sign bit; STR -> __op_type_err.
+func (c *Compiler) emitUnaryOp(w io.Writer, e *UnaryOp) {
+	if e.Op != TOK_MINUS {
+		panic("unknown unary op")
+	}
+	c.emitExpr(w, e.X)
+	write(w, "  popq %rax", "X payload")
+	write(w, "  popq %r10", "X tag")
+
+	id := c.labelCnt
+	c.labelCnt++
+	c.usesPanic = true
+	c.usesOpTypeErr = true
+
+	write(w, "  cmpq $1, %r10", "STR?")
+	write(w, "  je __op_type_err")
+	write(w, "  testq %r10, %r10", "INT?")
+	write(w, fmt.Sprintf("  jnz .Lneg_flt_%d", id))
+	write(w, "  negq %rax", "Negate integer")
+	write(w, "  pushq $0", "Tag = INT")
+	write(w, "  pushq %rax")
+	write(w, fmt.Sprintf("  jmp .Lneg_done_%d", id))
+	write(w, fmt.Sprintf(".Lneg_flt_%d:", id))
+	write(w, "  btcq $63, %rax", "Toggle sign bit (float)")
+	write(w, "  pushq $2", "Tag = FLOAT")
+	write(w, "  pushq %rax")
+	write(w, fmt.Sprintf(".Lneg_done_%d:", id))
 }
 
 func (c *Compiler) emitCmpSet(w io.Writer, setcc, comment string) {
